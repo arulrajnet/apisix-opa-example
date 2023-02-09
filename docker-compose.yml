@@ -1,0 +1,76 @@
+version: '3.9'
+
+services:
+
+  opa:
+    image: openpolicyagent/opa:0.48.0
+    ports:
+      - 8181
+    command: [ "run", "--server", "--addr", ":8181" ]
+
+  opa-init:
+    image: curlimages/curl:7.87.0
+    user: root
+    volumes:
+      - ${PWD}/opa/opa-init.sh:/opa-init.sh
+      - ${PWD}/opa/data.json:/data.json
+      - ${PWD}/opa/policy.rego:/policy.rego
+    depends_on:
+      opa:
+        condition: service_started
+    entrypoint: /bin/sh -c "apk add --no-cache jq && /opa-init.sh"
+    restart: on-failure
+
+  apisix:
+    image: apache/apisix:3.1.0-debian
+    restart: on-failure
+    volumes:
+      - apisix_log:/usr/local/apisix/logs
+      - ${PWD}/apisix_conf/config.yaml:/usr/local/apisix/conf/config.yaml
+    depends_on:
+      - etcd
+    ports:
+      # Admin
+      - 9180:9180
+      # Web - Proxy
+      - 9080:9080
+      # Metrics
+      - 9091:9091
+      # Control
+      - 9092:9092
+
+  apisix-init:
+    image: curlimages/curl:7.87.0
+    user: root
+    volumes:
+      - ${PWD}/apisix_conf/apisix-config-init.sh:/apisix-config-init.sh
+    depends_on:
+      apisix:
+        condition: service_started
+    entrypoint: /bin/sh -c "apk add --no-cache jq && /apisix-config-init.sh"
+    restart: on-failure
+    environment:
+      APISIX_SERVICE_ADMIN_SECRET: edd1c9f034335f136f87ad84b625c8f1
+
+  etcd:
+    image: bitnami/etcd:3.5.7
+    restart: on-failure
+    volumes:
+      - etcd_data:/bitnami/etcd
+    environment:
+      ETCD_ENABLE_V2: "true"
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: "http://etcd:2379"
+      ETCD_LISTEN_CLIENT_URLS: "http://0.0.0.0:2379"
+    ports:
+      - 2379
+
+  whoami:
+    image: traefik/whoami:v1.8.7
+    ports:
+      - 80
+
+
+volumes:
+  etcd_data:
+  apisix_log:
